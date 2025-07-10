@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loan EMI Calculator</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+</head>
+<body>
+<div id="emi-calculator-container">
+  <style>
+#emi-calculator-container {
+  max-width: 400px;
+  margin: 20px auto;
+  font-family: Arial, sans-serif;
+}
+.emi-card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  padding: 20px;
+}
+.header {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.tenure-group { display: flex; gap: 8px; }
+.tenure-group input { flex: 2; }
+.tenure-group select { flex: 1; }
+input, select {
+  width: 100%; padding: 8px; margin-top: 4px; margin-bottom: 12px;
+  border: 1px solid #ccc; border-radius: 6px; font-size: 14px;
+}
+.buttons {
+  display: flex; gap: 10px;
+}
+.buttons button {
+  flex: 1; padding: 10px; font-size: 14px; cursor: pointer; border: none;
+  border-radius: 6px; transition: 0.3s;
+}
+.primary { background: #007bff; color: white; }
+.primary:hover { background: #0056b3; }
+.secondary { background: #6c757d; color: white; }
+.secondary:hover { background: #5a6268; }
+#result, #history {
+  margin-top: 20px; padding: 10px; background: #f8f9fa; border-radius: 6px;
+}
+.hidden { display: none; }
+ul { padding-left: 20px; }
+</style>
+  <div class="emi-card">
+    <div class="header">
+      <h2>💰 Loan EMI Calculator</h2>
+    </div>
+
+    <form id="emi-form">
+      <label>Loan Amount (₹)
+        <input type="number" id="loanAmount" placeholder="e.g. 500000" required autofocus>
+      </label>
+
+      <label>Annual Interest Rate (%)
+        <input type="number" id="interestRate" placeholder="e.g. 7.5" required>
+      </label>
+
+      <label>Loan Tenure
+        <div class="tenure-group">
+          <input type="number" id="loanTenure" placeholder="e.g. 5" required>
+          <select id="tenureType">
+            <option value="years" selected>Years</option>
+            <option value="months">Months</option>
+          </select>
+        </div>
+      </label>
+
+      <div class="buttons">
+        <button type="submit" class="primary">Calculate</button>
+        <button type="button" id="resetBtn" class="secondary">Reset</button>
+      </div>
+    </form>
+
+    <div id="result" class="hidden">
+      <h3>📊 Results</h3>
+      <p><strong>Monthly EMI:</strong> <span id="emiValue"></span></p>
+      <p><strong>Total Interest:</strong> <span id="totalInterest"></span></p>
+      <p><strong>Total Payment:</strong> <span id="totalPayment"></span></p>
+      <p><strong>Yearly Payment:</strong> <span id="yearlyPayment"></span></p>
+      <button id="downloadSchedule">⬇️ Download Amortization (.csv)</button>
+      <canvas id="pieChart" style="max-width:300px;margin:auto;"></canvas>
+    </div>
+
+    <div id="history">
+      <h3>📖 History</h3>
+      <ul id="historyList"></ul>
+    </div>
+  </div>
+
+  <script>
+const historyList = document.getElementById("historyList");
+const pieChartCtx = document.getElementById("pieChart").getContext("2d");
+let pieChart;
+
+function formatCurrency(num) {
+  return `₹ ${num.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+}
+
+function calculateEMI(P, annualRate, N) {
+  let r = annualRate / 12 / 100;
+  if (r === 0) return P / N;
+  return (P * r * Math.pow(1 + r, N)) / (Math.pow(1 + r, N) - 1);
+}
+
+function buildAmortization(P, annualRate, N, emi) {
+  const r = annualRate / 12 / 100;
+  let balance = P;
+  const schedule = [["Month", "Principal Paid", "Interest Paid", "Remaining"]];
+  for (let i = 1; i <= N; i++) {
+    let interest = balance * r;
+    let principal = emi - interest;
+    balance -= principal;
+    schedule.push([i, principal, interest, Math.max(balance,0)]);
+  }
+  return schedule;
+}
+
+function saveHistory(entry) {
+  const old = JSON.parse(localStorage.getItem("emiHistory") || "[]");
+  old.unshift(entry);
+  localStorage.setItem("emiHistory", JSON.stringify(old.slice(0,5)));
+  renderHistory();
+}
+
+function renderHistory() {
+  const history = JSON.parse(localStorage.getItem("emiHistory") || "[]");
+  historyList.innerHTML = "";
+  history.forEach(e => {
+    const li = document.createElement("li");
+    li.textContent = `${e.amount} @ ${e.rate}% for ${e.tenure}M: EMI=${e.emi}`;
+    historyList.appendChild(li);
+  });
+}
+
+document.getElementById("emi-form").addEventListener("submit", e => {
+  e.preventDefault();
+
+  let P = parseFloat(loanAmount.value);
+  let R = parseFloat(interestRate.value);
+  let N = parseInt(loanTenure.value);
+  if (tenureType.value === "years") N *= 12;
+
+  if (P<=0||R<0||N<=0) { alert("❌ Enter valid positive values."); return; }
+
+  const emi = calculateEMI(P, R, N);
+  const totalPayment = emi*N;
+  const totalInterest = totalPayment-P;
+  const yearlyPayment = emi*12;
+
+  emiValue.textContent = formatCurrency(emi);
+  totalInterest.textContent = formatCurrency(totalInterest);
+  totalPayment.textContent = formatCurrency(totalPayment);
+  yearlyPayment.textContent = formatCurrency(yearlyPayment);
+
+  const schedule = buildAmortization(P,R,N,emi);
+  document.getElementById("downloadSchedule").onclick = () => {
+    let csv = schedule.map(r => r.join(",")).join("\n");
+    const blob = new Blob([csv], {type: "text/csv"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "amortization_schedule.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (pieChart) pieChart.destroy();
+  pieChart = new Chart(pieChartCtx, {
+    type: 'pie',
+    data: {
+      labels: ['Principal', 'Interest'],
+      datasets: [{
+        data: [P, totalInterest],
+        backgroundColor: ['#4caf50', '#f44336']
+      }]
+    }
+  });
+
+  result.classList.remove("hidden");
+
+  saveHistory({amount: P, rate: R, tenure: N, emi: formatCurrency(emi)});
+});
+
+document.getElementById("resetBtn").addEventListener("click", () => {
+  emi-form.reset();
+  result.classList.add("hidden");
+  if (pieChart) pieChart.destroy();
+});
+
+renderHistory();
+</script>
+</div>
+
+
+</body>
+</html>
